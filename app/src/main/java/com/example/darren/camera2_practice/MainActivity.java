@@ -65,6 +65,12 @@ public class MainActivity extends AppCompatActivity {
         System.loadLibrary("tensorflow_inference");
     }
     long time_start=0, time_end=0,time_process=0;
+    private int x_step,y_step;
+    private static final int STEP_SIZE=30;
+    private static final int SCALE_X=100;
+    private static final int SCALE_Y=200;
+    private int count_smoke=0;
+    private int count_nonmoke=0;
 
 
     private static final int REQUEST_CAMERA_PERMISSION_RESULT=0;
@@ -91,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
         boolean bProcessDone = true;
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-            mTextView.setText("Probability--\n"+CNN_output[0]+"\n"+CNN_output[1]);
+            mTextView.setText("Probability--\n"+count_smoke+"\n"+count_nonmoke);
             if(bProcessDone) {
                 bProcessDone = false;
                 new Thread(new Runnable() {
@@ -100,25 +106,44 @@ public class MainActivity extends AppCompatActivity {
 
                         // Scaling
                         mPreviewBitmap=mTextureView.getBitmap();
-                        //mPreviewBitmap = Bitmap.createScaledBitmap(mPreviewBitmap, SIZE_width, SIZE_hight, false);
+                        mPreviewBitmap = Bitmap.createScaledBitmap(mPreviewBitmap, SCALE_X, SCALE_Y, false);
                         //imv.setImageBitmap(mPreviewBitmap);
-                        CropBitmap = Bitmap.createBitmap(mPreviewBitmap,0, 0, CROP_SIZE,CROP_SIZE);
-                        CropBitmap.getPixels(RGBintvalues, 0, CropBitmap.getWidth(), 0, 0, CropBitmap.getWidth(), CropBitmap.getHeight());
-                        time_start=System.currentTimeMillis();
-                        int val = 0;
-                        for (int i = 0; i < RGBintvalues.length; ++i) {
-                            val = RGBintvalues[i];
 
-                            RGBfloatValues[i * 3 + 0] = (float) ((val >> 16) & 0xFF)/255;
-                            RGBfloatValues[i * 3 + 1] = (float) ((val >> 8) & 0xFF)/255;
-                            RGBfloatValues[i * 3 + 2] = (float) (val & 0xFF)/255;
-                            //mTextView.setText(Integer.toString(test));
-                        }
-                        inferenceInterface.fillNodeFloat(INPUT_NODE, INPUT_SIZE, RGBfloatValues);
-                        inferenceInterface.fillNodeFloat(KEEP_NODE, KEEP_SIZE, KEEP_VALUE);
-                        inferenceInterface.runInference(new String[]{OUTPUT_NODE});
+                        count_smoke=0;
+                        count_nonmoke=0;
+                        x_step=-STEP_SIZE;
+                        y_step=-STEP_SIZE;
 
-                        inferenceInterface.readNodeFloat(OUTPUT_NODE, CNN_output);
+                        time_start = System.currentTimeMillis();
+                        while(CROP_SIZE+y_step<SCALE_Y-y_step) {
+                            y_step = y_step + STEP_SIZE;
+                            x_step = -STEP_SIZE;
+                            while (CROP_SIZE + x_step < SCALE_X-x_step) {
+                                x_step = x_step + STEP_SIZE;
+                                CropBitmap = Bitmap.createBitmap(mPreviewBitmap, 0+x_step, 0+y_step, CROP_SIZE, CROP_SIZE);
+                                CropBitmap.getPixels(RGBintvalues, 0, CropBitmap.getWidth(), 0, 0, CropBitmap.getWidth(), CropBitmap.getHeight());
+
+                                int val = 0;
+                                for (int i = 0; i < RGBintvalues.length; ++i) {
+                                    val = RGBintvalues[i];
+
+                                    RGBfloatValues[i * 3 + 0] = (float) ((val >> 16) & 0xFF) / 255;
+                                    RGBfloatValues[i * 3 + 1] = (float) ((val >> 8) & 0xFF) / 255;
+                                    RGBfloatValues[i * 3 + 2] = (float) (val & 0xFF) / 255;
+                                    //mTextView.setText(Integer.toString(test));
+                                }
+                                inferenceInterface.fillNodeFloat(INPUT_NODE, INPUT_SIZE, RGBfloatValues);
+                                inferenceInterface.fillNodeFloat(KEEP_NODE, KEEP_SIZE, KEEP_VALUE);
+                                inferenceInterface.runInference(new String[]{OUTPUT_NODE});
+                                inferenceInterface.readNodeFloat(OUTPUT_NODE, CNN_output);
+                                if (CNN_output[0] > CNN_output[1]) {
+                                    count_smoke++;
+                                } else {
+                                    count_nonmoke++;
+                                }
+
+                            }//while2
+                        }//while 1
 
                         time_end=System.currentTimeMillis();
                         time_process = time_end-time_start;
