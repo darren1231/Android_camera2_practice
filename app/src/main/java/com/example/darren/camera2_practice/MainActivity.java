@@ -3,6 +3,7 @@ package com.example.darren.camera2_practice;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -29,7 +30,10 @@ import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import org.tensorflow.contrib.android.TensorFlowInferenceInterface;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,8 +46,30 @@ import static android.R.attr.width;
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
 public class MainActivity extends AppCompatActivity {
 
+    // Tensorflow
+    final String MODEL_FILE = "file:///android_asset/test_optimized_detect_smoke.pb";
+    private static final int CROP_SIZE = 64;
+    private static final String INPUT_NODE = "smoke_input";
+    private static final String KEEP_NODE = "keep_prob";
+    private static final int[] KEEP_SIZE = {1};
+    private static final float[] KEEP_VALUE = {1.0f};
+    private static final String OUTPUT_NODE = "smoke_output";
+    private static final int[] INPUT_SIZE = {1,CROP_SIZE,CROP_SIZE,3};
+    private int RGBintvalues [] = new int[CROP_SIZE * CROP_SIZE];
+    private float RGBfloatValues[] = new float[CROP_SIZE*CROP_SIZE*3];
+    float[] CNN_output = {0, 0};
+    private Bitmap mPreviewBitmap;
+    private Bitmap CropBitmap;
+    private TensorFlowInferenceInterface inferenceInterface;
+    static {
+        System.loadLibrary("tensorflow_inference");
+    }
+    long time_start=0, time_end=0,time_process=0;
+
+
     private static final int REQUEST_CAMERA_PERMISSION_RESULT=0;
     private TextureView mTextureView;
+    private TextView mTextView;
     private TextureView.SurfaceTextureListener mSurfaceTextureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
@@ -62,11 +88,55 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
 
+        boolean bProcessDone = true;
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+            mTextView.setText("Probability--\n"+CNN_output[0]+"\n"+CNN_output[1]);
+            if(bProcessDone) {
+                bProcessDone = false;
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
 
+                        // Scaling
+                        mPreviewBitmap=mTextureView.getBitmap();
+                        //mPreviewBitmap = Bitmap.createScaledBitmap(mPreviewBitmap, SIZE_width, SIZE_hight, false);
+                        //imv.setImageBitmap(mPreviewBitmap);
+                        CropBitmap = Bitmap.createBitmap(mPreviewBitmap,0, 0, CROP_SIZE,CROP_SIZE);
+                        CropBitmap.getPixels(RGBintvalues, 0, CropBitmap.getWidth(), 0, 0, CropBitmap.getWidth(), CropBitmap.getHeight());
+                        time_start=System.currentTimeMillis();
+                        int val = 0;
+                        for (int i = 0; i < RGBintvalues.length; ++i) {
+                            val = RGBintvalues[i];
 
-        }
+                            RGBfloatValues[i * 3 + 0] = (float) ((val >> 16) & 0xFF)/255;
+                            RGBfloatValues[i * 3 + 1] = (float) ((val >> 8) & 0xFF)/255;
+                            RGBfloatValues[i * 3 + 2] = (float) (val & 0xFF)/255;
+                            //mTextView.setText(Integer.toString(test));
+                        }
+                        inferenceInterface.fillNodeFloat(INPUT_NODE, INPUT_SIZE, RGBfloatValues);
+                        inferenceInterface.fillNodeFloat(KEEP_NODE, KEEP_SIZE, KEEP_VALUE);
+                        inferenceInterface.runInference(new String[]{OUTPUT_NODE});
+
+                        inferenceInterface.readNodeFloat(OUTPUT_NODE, CNN_output);
+
+                        time_end=System.currentTimeMillis();
+                        time_process = time_end-time_start;
+                        Log.d("RGB","Process Time:"+time_process+"");
+//                        mTextView.setText("Probability--"+CNN_output[0]+","+CNN_output[1]);
+                        // Tensorflow
+                        // return to UI
+
+                        bProcessDone = true;
+//                        test++;
+//                        mTextView.setText(Integer.toString(test));
+                    }
+                }).start();
+            } else {
+                //DO nothing
+            }
+
+        }// surface updated
     };
 
     //  Teach you how to get the real camera device into Android studio
@@ -122,6 +192,10 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         mTextureView =(TextureView)findViewById(R.id.textureView);
+        mTextView = (TextView)findViewById(R.id.textView);
+
+        inferenceInterface = new TensorFlowInferenceInterface();
+        inferenceInterface.initializeTensorFlow(getAssets(), MODEL_FILE);
     }
 
     // if not available, set it to the listener, then would go to "onSurfaceTextureAvailable"
